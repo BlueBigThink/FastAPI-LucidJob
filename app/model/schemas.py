@@ -25,6 +25,7 @@ class Login(BaseModel):
 
 class AddPost(BaseModel):
     id: int
+    # email: str
 
 class Post(BaseModel):
     id: int
