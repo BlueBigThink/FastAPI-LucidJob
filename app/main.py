@@ -40,7 +40,7 @@ def login(user: schemas.Login, db: Session = Depends(database.get_db)):
     access_token = auth.create_access_token(data={"sub": user.email}, expires_delta=access_token_expires)
     return { "access_token": access_token,  "token_type": "bearer" }
 
-@app.post("/addpost", response_model=schemas.AddPost)
+@app.post("/post", response_model=schemas.AddPost)
 async def add_post(token_data: Annotated[schemas.TokenData, Depends(auth.get_token_data)], file: UploadFile = File(...), db: Session = Depends(database.get_db)):
     # check file size
     contents = await file.read()
@@ -55,6 +55,24 @@ async def add_post(token_data: Annotated[schemas.TokenData, Depends(auth.get_tok
         f.write(contents)
     
     #add the post
-    # post = crud.add_post(db=db, file_name=file_id)
-    print(token_data.email)
-    return { "id": 1, "file_name": f"{file_id}" }
+    post = crud.add_post(db=db, file_name=f"{file_id}", email=token_data.email)
+
+    # store in memory
+
+    return { "id" : post.id }
+
+@app.get("/post", response_model=list[schemas.Post])
+def get_post(token_data: Annotated[schemas.TokenData, Depends(auth.get_token_data)], db: Session = Depends(database.get_db)):
+    posts = crud.get_post(db=db, email=token_data.email)
+    # store in memory
+
+    return posts
+
+@app.delete("/post/{post_id}", response_model=schemas.Post)
+def delete_post(post_id: int, token_data: Annotated[schemas.TokenData, Depends(auth.get_token_data)], db: Session = Depends(database.get_db)):
+    post = crud.delete_post(db=db, id=post_id)
+    if not post:
+        raise HTTPException(status_code=404, detail="Post not found")
+    # store in memory
+
+    return post

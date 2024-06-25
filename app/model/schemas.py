@@ -25,4 +25,7 @@ class Login(BaseModel):
 
 class AddPost(BaseModel):
     id: int
+
+class Post(BaseModel):
+    id: int
     file_name: str
