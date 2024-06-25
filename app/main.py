@@ -1,6 +1,7 @@
 from fastapi import Depends, FastAPI, HTTPException, UploadFile, File
 from sqlalchemy.orm import Session
 from datetime import timedelta
+from typing import Annotated
 import uuid
 import os
 
@@ -33,14 +34,14 @@ def login(user: schemas.Login, db: Session = Depends(database.get_db)):
     db_user = crud.authenticate_user(db=db, email=user.email, password=user.password)
 
     if not db_user:
-        raise HTTPException(status_code=400, detail="Incorrect email or password")
+        raise HTTPException(status_code=401, detail="Incorrect email or password", headers={"WWW-Authenticate": "Bearer"})
     
     access_token_expires = timedelta(minutes=auth.ACCESS_TOKEN_EXPIRE_MINUTES)
     access_token = auth.create_access_token(data={"sub": user.email}, expires_delta=access_token_expires)
     return { "access_token": access_token,  "token_type": "bearer" }
 
 @app.post("/addpost", response_model=schemas.AddPost)
-async def add_post(file: UploadFile = File(...), db: Session = Depends(database.get_db)):
+async def add_post(token_data: Annotated[schemas.TokenData, Depends(auth.get_token_data)], file: UploadFile = File(...), db: Session = Depends(database.get_db)):
     # check file size
     contents = await file.read()
     if len(contents) > UPLOAD_FILE_MAX_SIZE:
@@ -55,4 +56,5 @@ async def add_post(file: UploadFile = File(...), db: Session = Depends(database.
     
     #add the post
     # post = crud.add_post(db=db, file_name=file_id)
+    print(token_data.email)
     return { "id": 1, "file_name": f"{file_id}" }
