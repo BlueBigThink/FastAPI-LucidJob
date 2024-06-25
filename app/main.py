@@ -22,6 +22,16 @@ os.makedirs(UPLOAD_DIR, exist_ok=True)
 # Initialize the cache with a TTL of 60 seconds and a maximum size of 100 items
 cache = TTLCache(maxsize=100, ttl=300)
 
+def is_text_file(file: UploadFile) -> bool:
+    try:
+        content = file.file.read(1024)
+        file.file.seek(0)
+
+        content.decode("utf-8")
+    except UnicodeDecodeError:
+        return False
+    return True
+
 @app.post("/signup", response_model=schemas.Token)
 def create_user(user: schemas.UserCreate, db: Session = Depends(database.get_db)):
     db_user = crud.get_user_by_email(db, email=user.email)
@@ -29,6 +39,8 @@ def create_user(user: schemas.UserCreate, db: Session = Depends(database.get_db)
         raise HTTPException(status_code=400, detail="Email already registered")
     
     user = crud.create_user(db=db, user=user)
+
+    # create access token    
     access_token_expires = timedelta(minutes=auth.ACCESS_TOKEN_EXPIRE_MINUTES)
     access_token = auth.create_access_token(data={"sub": user.email}, expires_delta=access_token_expires)
     return { "access_token": access_token,  "token_type": "bearer" }
@@ -40,6 +52,7 @@ def login(user: schemas.Login, db: Session = Depends(database.get_db)):
     if not db_user:
         raise HTTPException(status_code=401, detail="Incorrect email or password", headers={"WWW-Authenticate": "Bearer"})
     
+    # create access token    
     access_token_expires = timedelta(minutes=auth.ACCESS_TOKEN_EXPIRE_MINUTES)
     access_token = auth.create_access_token(data={"sub": user.email}, expires_delta=access_token_expires)
     return { "access_token": access_token,  "token_type": "bearer" }
@@ -50,6 +63,14 @@ async def add_post(token_data: Annotated[schemas.TokenData, Depends(auth.get_tok
     contents = await file.read()
     if len(contents) > UPLOAD_FILE_MAX_SIZE:
         raise HTTPException(status_code=413, detail="File size exceeds 1MB limit")
+
+    # Check MIME type
+    if file.content_type not in ["text/plain", "application/octet-stream"]:
+        raise HTTPException(status_code=400, detail="Uploaded file is not a text file")
+
+    # check file type
+    if not is_text_file(file):
+        raise HTTPException(status_code=415, detail="File type is not text")
     
     #save the file
     file_id = uuid.uuid4()
@@ -61,6 +82,7 @@ async def add_post(token_data: Annotated[schemas.TokenData, Depends(auth.get_tok
     #add the post
     post = crud.add_post(db=db, file_name=f"{file_id}", email=token_data.email)
 
+    # update cache
     if "posts" in cache:
         posts = cache["posts"]
         posts.append(post)
@@ -70,6 +92,8 @@ async def add_post(token_data: Annotated[schemas.TokenData, Depends(auth.get_tok
 
 @app.get("/post", response_model=list[schemas.Post])
 def get_post(token_data: Annotated[schemas.TokenData, Depends(auth.get_token_data)], db: Session = Depends(database.get_db)):
+    
+    # set cache if it doesn't exist
     if "posts" not in cache:
         cache["posts"] = crud.get_post(db=db, email=token_data.email)
 
@@ -83,13 +107,14 @@ def delete_post(post_id: int, token_data: Annotated[schemas.TokenData, Depends(a
 
     file_name = f"{post.file_name}.txt"
     file_path = os.path.join(UPLOAD_DIR, file_name)
-  
+    
+    # update cache
     if "posts" in cache:
         posts = cache["posts"]
         posts = [item for item in posts if item.id != post.id]
         cache["posts"] = posts
 
-    #Delete the file
+    # delete the file
     try:
         if os.path.exists(file_path):
             os.remove(file_path)
